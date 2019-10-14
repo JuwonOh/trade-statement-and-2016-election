@@ -1,0 +1,308 @@
+---
+title: "Mid-summury"
+author: "JuwonOh"
+date: '`r Sys.Date()`'
+fontsize: 12pt
+output: 
+  html_document: default
+
+---
+
+```{r, results='hide', warning=FALSE, message=FALSE}
+
+library(dplyr)
+library(knitr)
+library(readr)
+library(stringr)
+library(tm)
+library(Cairo)
+library(quanteda)
+library(tidyverse)
+library(tidytext)
+library(lattice)
+library(stm)        # Package for sturctural topic modeling
+library(stmCorrViz) # Package for hierarchical correlation view of STMs
+require(splines)
+library("zoo")
+
+# user specific working directory setup and loading news data
+
+setwd('~/Dropbox/Press release')
+source('code/help.R', encoding="utf-8")
+```
+
+### Exploring the effects of the covariates: Party
+
+```{r fig.height = 10, fig.width = 20, echo=TRUE, results="hide"}
+load('data/senate-merging-election.Rdata')
+## Independent seantors were excluded to leave only the topic distribution by party.
+senate.party <- subset(senate_df, party == 'D' | party =='R')
+
+### Preprocessing
+
+out <- preproc(senate.party)
+vocab <- out$vocab
+meta <- out$meta
+
+meta$trump.datrs <- as.numeric(meta$trump.dates)
+
+seed = 19999
+congressPrevFitAll <- stm(out$documents, out$vocab, K=30,
+                          prevalence=~ party+ s(trump.dates) + region + pre16 ,
+                          max.em.its=75, data=out$meta, init.type="Spectral", seed=seed)
+
+prepAll30 <- estimateEffect(1:30 ~ party + s(trump.dates, df = 30) + region + pre16, congressPrevFitAll,
+                            meta = out$meta, uncertainty = "Global", prior = 0.01)
+```
+
+```{r echo=FALSE}
+Result <- plot(
+  prepAll30,
+  "party",
+  method = "difference",
+  cov.value1 = "R",
+  cov.value2 = "D",
+  verbose.labels = F,
+  ylab = "Expected Difference in Topic Probability by Party (with 95% CI)",
+  xlab = "More Likely Republican                          Not Significant                       More Likely Democrat",
+  main = "Effect of Party on Topic Prevelance for Press Release",
+  xlim = c(-0.1, 0.1)
+)
+
+topicNames <- labelTopics(congressPrevFitAll, n = 5)
+topic <- data.frame(
+  TopicNumber = 1:30,
+  TopicProportions = colMeans(congressPrevFitAll$theta))
+```
+
+```{r echo=FALSE fig.width=100, fig.height=80}
+# order based on Expected Topic Proportion
+rank = order(unlist(Result$means))
+topicRnk <- topic[rank, ]
+
+plot(
+  prepAll30,
+  "party",
+  method = "difference",
+  cov.value1 = "R",
+  cov.value2 = "D",
+  verbose.labels = F,
+  topics = topicRnk$TopicNumber,
+  ylab = "Expected Difference in Topic Probability by Party (with 95% CI)",
+  xlab = "More Likely Republican                          Not Significant                       More Likely Democrat",
+  main = "Effect of Party on Topic Prevelance for Press Release",
+  xlim = c(-0.2, 0.2)
+)
+devtools::install_github("mikaelpoul/tidystm", dependencies = TRUE)
+
+main = paste0(model.stm.labels$prob[i,1:3])
+```
+
+### Summary of Statistics
+
+You can also embed plots, for example:
+
+```{r}
+
+out <- preproc(senate_df)
+docs <- out$documents
+vocab <- out$vocab
+meta <- out$meta
+
+meta$trump.datrs <- as.numeric(meta$trump.dates)
+
+### Preprocessing
+
+load('data/stm data/congressPrevFit.Rdata')
+prep <- estimateEffect(1:30 ~ party + s(trump.dates), congressPrevFit,
+                        meta = out$meta, uncertainty = "Global", prior = 0.01)
+summary(prep, topics=14) 
+
+```
+
+```{r}
+
+load('data/stm data/congressPrevFitS.Rdata')
+prepS <- estimateEffect(1:30 ~ party + trump.binary + state, congressPrevFitS,
+                         meta = out$meta, uncertainty = "Global", prior = 0.01)
+
+summary(prepS, topics=14)
+
+```
+
+```{r}
+
+load('data/stm data/congressPrevFitR.Rdata')
+prepR <- estimateEffect(1:30 ~ party + s(trump.dates) + region, congressPrevFitR,
+                         meta = out$meta, uncertainty = "Global", prior = 0.01)
+summary(prepR, topics=14)
+
+```
+
+```{r}
+
+load('data/stm data/congressPrevFitAlldf30.Rdata')
+prepAll30 <- estimateEffect(1:30 ~ party + s(trump.dates, df = 30) + region + pre16, congressPrevFitAll,
+                          meta = out$meta, uncertainty = "Global", prior = 0.01)
+summary(prepR, topics=14)
+```
+
+```{r}
+load('data/stm data/congressPrevFitAlldf20.Rdata')
+
+prepAll20 <- estimateEffect(1:30 ~ party + s(trump.dates, df = 20) + region + pre16, congressPrevFitAll,
+                            meta = out$meta, uncertainty = "Global", prior = 0.01)
+summary(prepAll20, topics=14)
+```
+
+### Effect of Time
+
+```{r}
+## Create a daily Date object - helps my work on dates
+inds <- seq(as.Date("2015-01-01"), as.Date("2018-08-30"), by = "day")
+xx <- sort(unique(out$meta$trump.dates))
+xx.dates <- as.Date(as.numeric(xx), origin ='2016-11-08')
+
+## Create a time series object and define b-spline
+set.seed(25)
+myts <- ts(xx,     # random data
+           start = c(2015, as.numeric(format(inds[1], "%j"))),
+           frequency = 365)
+tbs <- bs(xx, degree=30)
+bsts14 <- ts(tbs[,14],     # random data
+             start = c(2015, as.numeric(format(inds[1], "%j"))),
+             frequency = 365)
+bsts18 <- ts(tbs[,18],     # random data
+             start = c(2015, as.numeric(format(inds[1], "%j"))),
+             frequency = 365)
+bsts26 <- ts(tbs[,26],     # random data
+            start = c(2015, as.numeric(format(inds[1], "%j"))),
+            frequency = 365)
+
+plot(bsts26, col="red")
+lines(bsts18, col="green")
+lines(bsts14, col="blue")
+
+```
+
+```{r fig.width=60, fig.height=80}
+## which date is the maximum of bsts 7 degree?
+time(bsts14)[which.max(bsts14)]
+time(bsts18)[which.max(bsts18)]
+time(bsts26)[which.max(bsts26)]
+
+## Changes in topic proportion over time
+
+major.topics <- c(10, 14, 30, 13)
+topics = 30
+monthseq <- seq(from=as.Date("2015-01-01"), to=as.Date("2018-08-29"), by="month")
+monthnames <- months(monthseq)
+model.stm.labels <- labelTopics(congressPrevFitAll, major.topics)
+labelsname <- c('topic 10 : trade, steel, workers', 'topic 14 : american, jobs, agreement',
+                'topic 30 : tariffs, trump, administration', 'topic 13 : program, infrastructure, funding')
+labelsname[1]
+par(mfrow=c(4,1), cex.lab=3, cex.axis=3, cex.main=5)
+for (i in 1:4){
+  plot.estimateEffect(prepAll30, "trump.dates", method = "continuous", topics = major.topics[i], main = labelsname[i],
+       printlegend = F, xaxt='n', ylim=c(-.10,.30))
+  axis(1,at=c(-676,-309, 56, 420),labels=c(2015,2016,2017,2018),las=2)
+  abline(v=c(-676,-309, 56, 420),lty=2,lwd=1,col="grey45") 
+  # spline axis
+  axis(1,at=c(-252,-134, 120),labels=c('s14','s18','s26'),las=2)
+  abline(v=c(-252,-134, 120),col="blue")
+  # president election
+  axis(1,at=c(1),labels=c('President Election'),las=2)
+  abline(v=c(1),col="green")
+}
+
+```
+
+
+### Using CausalImpact
+
+### Using Stargazer or Xtable
+
+## Model A. Select losers and winners only (senators who lost seats and who won seats in the same state)
+
+### Summary of Statistics
+
+```{r}
+
+load('data/groupAtext.Rdata')
+start.date = "2016-01-01"
+outA <- preproc(groupA)
+docsA <- outA$documents
+vocabA <- outA$vocab
+metaA <- outA$meta
+metaA$trump.datrs <- as.numeric(metaA$trump.dates)
+
+```
+
+```{r echo=FALSE}
+load('data/stm data/congressPrevFitAAll.Rdata')
+congressPrevFitAAll <- stm(outA$documents, outA$vocab, K=30,
+                           prevalence=~ party + state + s(trump.dates) + region + pre16 ,
+                           max.em.its=75, data=outA$meta, init.type="Spectral", seed=seed)
+```
+
+```{r}
+prepAAll <- estimateEffect(1:30 ~ party + state + s(trump.dates) + region + pre16, congressPrevFitAAll,
+                         meta = outA$meta, uncertainty = "Global", prior = 0.01)
+summary(prepAAll, topics=3)
+```
+
+## Model C. Select senators who continue to serve before and after the election (including winners of the 2016 election)
+
+### Summary of Statistics
+
+
+```{r echo=FALSE}
+
+load('data/groupCtext.Rdata')
+start.date = "2016-01-01"
+outC <- preproc(groupC)
+docsC <- outC$documents
+vocabC <- outC$vocab
+metaC <- outC$meta
+metaC$trump.datrs <- as.numeric(metaC$trump.dates)
+
+```
+
+```{r echo=FALSE}
+congressPrevFitCAll <- stm(outC$documents, outC$vocab, K=30,
+                           prevalence=~ party + state + s(trump.dates, df = 20) + region + pre16 ,
+                           max.em.its=75, data=outC$meta, init.type="Spectral", seed=seed)
+```
+
+```{r}
+prepCAll <- estimateEffect(1:30 ~ party + state + s(trump.dates, df =20) + region + pre16, congressPrevFitCAll,
+                         meta = outC$meta, uncertainty = "Global", prior = 0.01)
+summary(prepCAll, topics=17) 
+
+```
+
+## Model D. Select senators who did not go through the 2016 election (only off-election senatros)
+
+### Summary of Statistics
+
+```{r echo=FALSE}
+
+load('data/groupDtext.Rdata')
+
+## Preprocessing
+
+start.date = "2016-01-01"
+outD <- preproc(groupD)
+docsD <- outD$documents
+vocabD <- outD$vocab
+metaD <- outD$meta
+metaD$trump.datrs <- as.numeric(metaD$trump.dates)
+```
+
+```{r}
+load('data/stm data/congressPrevFitDAll.Rdata')
+prepDAll <- estimateEffect(1:30 ~ party + s(trump.dates) + region + pre16, congressPrevFitDAll,
+                        meta = outD$meta, uncertainty = "Global", prior = 0.01)
+summary(prepDAll, topics=5) 
+```
+

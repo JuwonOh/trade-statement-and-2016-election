@@ -1,0 +1,213 @@
+---
+title: "Public newss about korea"
+author: "Juwon Oh"
+date: "2019년 6월 02일"
+output: html_document
+---
+
+## Introduction
+
+
+## Data
+
+
+## Loading package and data
+
+```{r, results='hide', warning=FALSE, message=FALSE}
+library(knitr)
+library(readr)
+library(stringr)
+library(tm)
+library(Cairo)
+library(quanteda)
+library(tidyverse)
+library(tidytext)
+library(lattice)
+library(stm)        # Package for sturctural topic modeling
+library(stmCorrViz) # Package for hierarchical correlation view of STMs
+# user specific working directory setup and loading news data
+
+if(Sys.getenv("LOGNAME") == "park"){
+    setwd("~/Dropbox/press release")
+    source("~/Github/Sooahn/GlobalDataCenter/Analysis/preprocess_functions.R")
+
+}else{
+    setwd('~/Dropbox/Press release')
+    source("~/github/GlobalDataCenter/Analysis/preprocess_functions.R")
+}
+load('data/trade house.Rdata')
+source('code/help.R')
+```
+
+## Preprocessing
+```{r}
+h_out <- preproc(house)
+
+h_docs <- h_out$documents
+h_vocab <- h_out$vocab
+h_meta <- h_out$meta
+```
+
+### divide data by two regimes
+```{r}
+house$numeric.date <- as.Date(house$date) - as.Date('2015-01-01')
+house1 <- subset(house, numeric.date < 683)
+house2 <- subset(house, numeric.date >= 683)
+## house[which(house$numeric.date == 683), 8:10]
+##      year month day
+## 1321 2016    11  14
+
+## pre
+h_out1 <- preproc(house1)
+h_docs1 <- h_out1$documents
+h_vocab1 <- h_out1$vocab
+h_meta1 <- h_out1$meta
+
+## post
+h_out2 <- preproc(house2)
+h_docs2 <- h_out2$documents
+h_vocab2 <- h_out2$vocab
+h_meta2 <- h_out2$meta
+```
+
+
+
+## Using stm
+
+## Understand and Explain
+
+```{r, results='hide', warning=FALSE}
+seed = 3729 ## sample(1:10000, 1)
+housePrevFit <- stm(h_out$documents, h_out$vocab, K=30, prevalence=~party+state+s(date),  max.em.its=75, data=h_out$meta,
+                        init.type="Spectral", seed=seed)
+
+## pre
+housePrevFit1 <- stm(h_out1$documents, h_out1$vocab, K=30, prevalence=~party+state+s(date),  max.em.its=75, data=h_out1$meta,
+                        init.type="Spectral", seed=seed)
+
+## post
+housePrevFit2 <- stm(h_out2$documents, h_out2$vocab, K=30, prevalence=~party+state+s(date),  max.em.its=75, data=h_out2$meta,
+                        init.type="Spectral", seed=seed)
+
+## save(housePrevFit, file = "data/house_stm.Rdata")
+```
+
+### Proportion of topics
+
+- 전체 문서에서 각 토픽들이 차지하는 비중을 살펴보자.
+
+```{r, fig.width=10, fig.height=8}
+par(bty="n",col="grey40",lwd=5)
+plot(housePrevFit, type="summary", xlim=c(0,.4))
+
+par(bty="n",col="grey40",lwd=5)
+plot(housePrevFit1, type="summary", xlim=c(0,.4))
+
+par(bty="n",col="grey40",lwd=5)
+plot(housePrevFit2, type="summary", xlim=c(0,.4))
+```
+
+### label of topics
+```{r}
+label <- labelTopics(housePrevFit, n = 10)
+## highest probability words
+Prob <- label[1]$prob
+## FREX: exclusivity in a way that balances word frequency. FREX is the weighted harmonic mean of the word’s rank in terms of exclusivity and frequency.
+Frex <- label[2]$frex
+## Lift weights words by dividing by their frequency in other topics, therefore giving higher weight to words that appear less frequently in other topics.
+Lift <- label[3]$lift
+## score divides the log frequency of the word in the topic by the log frequency of the word in other topics. 
+Score <- label[4]$score
+## label[5]$topicnums
+```
+
+
+### print the documents highly associated with each topic
+```{r}
+## the first 200 characters of original text.
+shortdoc <- house$title[-252]
+findText(housePrevFit, texts = shortdoc, n = 20, topics = 25)
+findText(housePrevFit, texts = shortdoc, n = 20, topics = 11)
+findText(housePrevFit, texts = shortdoc, n = 20, topics = 20)
+findText(housePrevFit, texts = shortdoc, n = 20, topics = 17)
+findText(housePrevFit, texts = shortdoc, n = 20, topics = 24)
+findText(housePrevFit, texts = shortdoc, n = 20, topics = 26)
+
+## what we want to find
+## 1. topic change (does trade issue change after the election?)
+## 2. who issues press release in relevant topics? (by state, party, district)
+## 3. how the frequency, number of legislators, change before and after the election?
+
+## pre
+shortdoc1 <- house1$title[-252]
+findText(housePrevFit1, texts = shortdoc1, n = 20, topics = 26)
+
+
+## post
+shortdoc2 <- data$title[-252]
+```
+
+
+### Keywords in topics
+
+- 각 토픽에서 주요한 단어들을 볼 수 있다.
+
+```{r, fig.width=10, fig.height=8}
+plot(housePrevFit, type="labels", topics=c(24,10, 16, 23, 15, 19, 27, 27))
+```
+
+
+```{r}
+print(sageLabels(housePrevFit))
+```
+
+### Topics labeling 
+
+```{r, fig.width=8, fig.height=8}
+mod.out.corr <- topicCorr(housePrevFit)
+plot(mod.out.corr,  
+     topics = c(1:30))
+```
+
+### EstimateEffect
+
+ - STM은 estimateEffect함수를 통해서 topical prevalence와 메타데이터들 사이의 관계를 관측한다. 사용자는 메타데이터의 변수를 지정하여 topic들을 estimate 한다. 이를 통해 특정 주제에 대한 문서의 비율을 볼 수 있으며, 주제에 따라 변수들이 어떤 상관관계를 가졌는지, 그 정도가 시간의 흐름에 따라 어떻게 변화하는지 볼 수 있다.
+ - estimateEffect 함수의 결과는 회귀 분석의 결과와 비슷하게 정리된다.
+ - 첫번째 예시는 토픽과 변수(씽크탱크)의 상관관계를 살펴본 것이다.
+ 
+```{r, results='hide', warning=FALSE}
+h_out$meta$party <- as.character(h_out$meta$party)
+h_out$meta$state <- as.character(h_out$meta$state)
+prep_h <- estimateEffect(1:30 ~ party+state+s(date), housePrevFit, h_meta=h_out$meta, 
+                       uncertainty="Global")
+```
+
+
+
+```{r, fig.width=10, fig.height=8}
+plot(prep_h, covariate="party", topics= c(10,1, 11, 12, 13, 6, 8, 9), model=housePrevFit, 
+     method="difference", cov.value1="R", cov.value2='D',
+     xlab="Republicans vs. Democrats", main="Effect of Republicans vs. Democrats",
+     xlim=c(-.30,.30))
+```
+
+
+```{r, fig.width=20, fig.height=60}
+## PLOT 함수에서 GGPLOT으로 바꾸기. 제대로 안나옴. 1) 토픽을 늘리건, 2) hLDA를 사용하건, 좀더 토픽이 심층적으로 나오게 살펴보기.
+par(mfrow=c(15,1), pin=c(100,100))
+topics = 15
+monthseq <- seq(from=as.Date("2015-01-01"), to=as.Date("2019-06-15"), by="month")
+monthnames <- months(monthseq)
+
+model.stm.labels <- labelTopics(housePrevFit, 1:topics)
+labelsname <- c('topic 1', 'topic 2', 'topic 3', 'topic 4', 'topic 5', 'topic 6', 'topic 7', 'topic 8', 'topic 9', 'topic 10','topic 11', 'topic 12', 'topic 13', 'topic 14', 'topic 15')
+
+for (i in c(1:15))
+{
+  plot(prep_h, "date", method="continuous", topics = i, main = labelsname[i], printlegend = F,
+       xaxt="n", xlab="Time", ylim=c(-.10,.30))
+  axis(1, at=as.numeric(monthseq)-min(as.numeric(monthseq)), labels=monthnames)
+}
+
+
+```
